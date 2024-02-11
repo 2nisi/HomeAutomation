@@ -1,0 +1,156 @@
+// Include the library
+#include <Servo.h>
+
+// Physical Connections to Arduino Pins:
+const int limitSwitch_Parked_pin = 5;  // Constant that correspond to the pin that the limit switch that detects that the projector platform is Closed
+const int limitSwitch_Projecting_pin = 4; // Constant that correspond to the pin that the limit switch that detects that the projector platform is Open
+const int limitSwitch_DoorClosed_pin = 6; // Constant that correspond to the pin that the limit switch that detects that the Door is at Closed position
+const int unused_pin = 7; // Constant that correspond to the pin number 7 which is currently not used.
+const int statusLED_pin = 13; // This constant correspond to the pin that is connected to the LED status indicator
+
+const int projectorLight_pin = A0; // This constant correspond to the pin that is connected to the light of the projector indicating projector state on/off
+
+// Opening / Closing platform constants
+const int vel = 20; // Speed that the projector platform will open and close
+
+// Create the servo object
+Servo myservo; // This is the servo that moves the projector platform from open <-> closed position
+
+// Variables will change - System States:
+bool parkedPosition = false;  // When false means the projector platform is closed/ otherwise unknown
+bool projectingPosition = false; // When false means the projector platform is open/ otherwise unknown
+bool doorClosed = false;    // When true means the projector door is closed/ otherwise unknown
+bool projectorIsOn = false; // When true projector is on/ otherwise is off
+bool undefined_sensor = false; // This is not used yet.
+
+// Setup section to run once
+void setup() {
+  // Pin Set-up
+  // initialize the LimitSwitches and ProjectLight pins as a input:
+  pinMode(limitSwitch_Parked_pin, INPUT_PULLUP);
+  pinMode(limitSwitch_Projecting_pin, INPUT_PULLUP);
+  pinMode(limitSwitch_DoorClosed_pin, INPUT_PULLUP);
+  pinMode(projectorLight_pin, INPUT);
+  pinMode(statusLED_pin, OUTPUT);
+
+  // initialize serial communication:
+  Serial.begin(115200);
+
+  // Servo Set-up
+  myservo.attach(10); // attach the servo to our servo object
+  myservo.write(90); 
+}
+
+// Loop to keep the motor turning!
+void loop() {
+  // Start by reading the latest sensors values (limit switches and projector power light)
+ updateSensorValues();
+
+  // Checking the state of the projector platform - platform position
+  if (projectorIsOn == true && projectingPosition == false && doorClosed == false){
+    openPlatform();
+  }else if (projectorIsOn == false && (parkedPosition == false or doorClosed == false)){
+    closePlatform();
+  }
+  //pulseLED();// sequence to indicate with LED that something is wrong
+  delay(300);
+}
+
+// Update Sensor Values
+void updateSensorValues(){
+  // Reading the status of the limit switches
+  parkedPosition = !digitalRead(limitSwitch_Parked_pin); // Limit switch that detects parking position
+  projectingPosition = !digitalRead(limitSwitch_Projecting_pin); // Limit switch that detects projecting position
+  doorClosed = !digitalRead(limitSwitch_DoorClosed_pin); // Limit switch that detects door close/open
+  
+  // Depending on the light intensity threshold we separate the projector state on or off
+  if (analogRead(projectorLight_pin) > 200){
+    projectorIsOn = true;
+  }
+  else if(analogRead(projectorLight_pin) < 50){
+    projectorIsOn = false;
+  }
+  Serial.print("projectorIsOn: ");
+  Serial.print(projectorIsOn);
+  Serial.print(" - ");
+  Serial.print("Value: ");
+  Serial.print(analogRead(projectorLight_pin));
+  Serial.print("\t");
+  Serial.print("parkedPosition: ");
+  Serial.print(parkedPosition);
+  Serial.print("\t");
+  Serial.print("doorClosed: ");
+  Serial.print(doorClosed);
+  Serial.print("\t");
+  Serial.print("projectingPosition: ");
+  Serial.println(projectingPosition);
+}
+
+// Servo Action >> OPEN <<
+void openPlatform(){
+  // Keep moving till platform has reached projecting position
+  unsigned long t_start = millis();
+  int t_duration = 9000; //milliseconds
+  int steps = 0;
+  bool check = false;
+  while (projectorIsOn == true && projectingPosition == false) {
+    myservo.write(90 + steps); // rotate the motor clockwise
+    if (check == false && steps < vel){
+      delay(90);
+      steps += 2;
+    }else if(check == false){
+      steps = vel;
+    }
+    if (millis() - t_start > t_duration && steps > 10){
+      delay(90);
+      steps -= 1;
+      check = true;
+    }
+    updateSensorValues();
+  }
+  myservo.write(90);
+  Serial.println("Reached Projecting Position");
+}
+
+// Servo Action >> CLOSE <<
+void closePlatform(){
+  // Keep moving till platform has reached parked position
+  unsigned long t_start = millis();
+  int t_duration = 8000; //milli seconds
+  int steps = 0;
+  bool check = false;
+  int enume = 0;
+  while (projectorIsOn == false && parkedPosition == false) {
+    myservo.write(90 - steps); // rotate the motor counterclockwise
+
+    if (check == false && steps < vel){
+      delay(90);
+      steps += 2;
+    }else if(check == false){
+      steps = vel;
+    }
+
+    if (millis() - t_start > t_duration && steps > 10){
+      delay(90);
+      steps -= 1;
+      check = true;
+    }
+    updateSensorValues();
+  }
+  myservo.write(90);
+  Serial.println("Reached Parked Position");
+}
+
+// Servo Action >> LOCK <<
+void brakeMotor(){
+  myservo.write(90); // stop the motor
+  delay(100); // stay stopped
+}
+
+// The integrated LED should pulse because an error is triggered
+void pulseLED(){
+  digitalWrite(LED_BUILTIN, HIGH);  // turn the LED on (HIGH is the voltage level)
+  delay(50);                      // wait for (ms)
+  digitalWrite(LED_BUILTIN, LOW);   // turn the LED off by making the voltage LOW
+  delay(100);                      // wait for (ms)
+}
